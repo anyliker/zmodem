@@ -1,4 +1,4 @@
-module github.com/xiwh/zmodem
+module github.com/anyliker/zmodem
 
 go 1.19
 
