@@ -2,7 +2,7 @@ package zmodem
 
 import (
 	"encoding/binary"
-	"github.com/xiwh/zmodem/myioutil"
+	"github.com/anyliker/zmodem/myioutil"
 	"io"
 )
 

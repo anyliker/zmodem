@@ -2,7 +2,7 @@ package zmodem
 
 import (
 	"errors"
-	"github.com/xiwh/zmodem/byteutil"
+	"github.com/anyliker/zmodem/byteutil"
 	"golang.org/x/exp/slices"
 	"io"
 	"os"

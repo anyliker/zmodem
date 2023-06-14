@@ -2,7 +2,7 @@ package zmodem
 
 import (
 	"errors"
-	"github.com/xiwh/zmodem/collectionutil"
+	"github.com/anyliker/zmodem/collectionutil"
 )
 
 type subPacket struct {

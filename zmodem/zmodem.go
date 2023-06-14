@@ -3,7 +3,7 @@ package zmodem
 import (
 	"context"
 	"errors"
-	"github.com/xiwh/zmodem/collectionutil"
+	"github.com/anyliker/zmodem/collectionutil"
 	"io"
 	"sync"
 	"sync/atomic"
