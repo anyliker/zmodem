@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-	"github.com/xiwh/zmodem/byteutil"
-	"github.com/xiwh/zmodem/zmodem"
+	"github.com/anyliker/zmodem/byteutil"
+	"github.com/anyliker/zmodem/zmodem"
 	"io"
 	"os"
 	"os/exec"

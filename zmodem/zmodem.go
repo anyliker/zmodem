@@ -3,7 +3,9 @@ package zmodem
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/anyliker/zmodem/collectionutil"
+	"github.com/anyliker/zmodem/model"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -23,6 +25,8 @@ type ZModemConsumer struct {
 	OnUploadSkip    func(file *ZModemFile)
 	OnCheckDownload func(file *ZModemFile)
 	OnDownload      func(file *ZModemFile, reader io.ReadCloser) error
+	OnTransferring  func(tp *model.TransferProgress)
+	OnTransferDone  func(zm *ZModem, tp *model.TransferProgress)
 	//数据写入
 	Writer io.Writer
 	//终端回显写入
@@ -52,11 +56,21 @@ func New(consumer ZModemConsumer) *ZModem {
 	}
 }
 
+// CancelTask 取消
+func (t *ZModem) CancelTask() {
+	if t.lastDownloadFile != nil {
+		t.lastDownloadFile.forceCancel = true
+	}
+	if t.lastUploadFile != nil {
+		t.lastUploadFile.forceCancel = true
+	}
+}
+
 func (t *ZModem) GetStatus() Status {
 	return t.status
 }
 
-func (t *ZModem) sendFrame(f frame) error {
+func (t *ZModem) SendFrame(f frame) error {
 	result, err := f.marshal()
 	if err != nil {
 		return err
@@ -64,6 +78,7 @@ func (t *ZModem) sendFrame(f frame) error {
 	//log("发送帧")
 	//log(hex.Dump(result))
 	//log(f.ToString() + "\n")
+	fmt.Println("发送", f.frameType)
 
 	_, err = t.consumer.Writer.Write(result)
 	return err
@@ -236,14 +251,14 @@ func (t *ZModem) release() {
 	if t.status != StatusIdle {
 		t.sendFileEOF = false
 		if t.lastDownloadFile != nil {
-			if t.lastDownloadFile.buf != nil {
-				_ = t.lastDownloadFile.buf.Close()
+			if t.lastDownloadFile.downloadStream != nil {
+				_ = t.lastDownloadFile.downloadStream.Close()
 			}
 			t.lastDownloadFile = nil
 		}
 		if t.lastUploadFile != nil {
-			if t.lastUploadFile.buf != nil {
-				_ = t.lastUploadFile.buf.Close()
+			if t.lastUploadFile.uploadFile != nil {
+				_ = t.lastUploadFile.uploadFile.Close()
 			}
 			t.lastUploadFile = nil
 		}

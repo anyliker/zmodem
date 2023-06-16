@@ -2,25 +2,28 @@ package zmodem
 
 import (
 	"errors"
-	"github.com/anyliker/zmodem/byteutil"
+	"github.com/anyliker/zmodem/model"
 	"golang.org/x/exp/slices"
 	"io"
 	"os"
 	"strconv"
 	"strings"
-	"time"
 )
 
 type ZModemFile struct {
-	Filename string `json:"filename"`
-	Size     int    `json:"length"`
-	ModTime  int    `json:"modTime"`
-	FileMode int    `json:"fileMode"`
-	No       int    `json:"no"`
-	RemFiles int    `json:"remFiles"`
-	RemSize  int    `json:"remSize"`
-	isSkip   bool
-	buf      io.ReadWriteCloser
+	Filename       string `json:"filename"`
+	Size           int    `json:"length"`
+	ModTime        int    `json:"modTime"`
+	FileMode       int    `json:"fileMode"`
+	No             int    `json:"no"`
+	RemFiles       int    `json:"remFiles"`
+	RemSize        int    `json:"remSize"`
+	tp             *model.TransferProgress
+	writeCount     int
+	forceCancel    bool
+	isSkip         bool
+	downloadStream io.ReadWriteCloser
+	uploadFile     *os.File
 }
 
 func (t *ZModemFile) Skip() {
@@ -46,20 +49,20 @@ func (t *ZModemFile) marshal() []byte {
 	return data
 }
 
-func NewZModemFile(filename string, size int) (*ZModemFile, io.WriteCloser) {
-	buf := byteutil.NewBlockReadWriter(int64(size))
-	return &ZModemFile{
-		Filename: filename,
-		Size:     size,
-		ModTime:  int(time.Now().Unix()),
-		FileMode: int(os.ModePerm),
-		No:       0,
-		RemSize:  size,
-		RemFiles: 1,
-		isSkip:   false,
-		buf:      buf,
-	}, buf
-}
+//func NewZModemFile(filename string, size int) (*ZModemFile, io.WriteCloser) {
+//	buf := byteutil.NewBlockReadWriter(int64(size))
+//	return &ZModemFile{
+//		Filename: filename,
+//		Size:     size,
+//		ModTime:  int(time.Now().Unix()),
+//		FileMode: int(os.ModePerm),
+//		No:       0,
+//		RemSize:  size,
+//		RemFiles: 1,
+//		isSkip:   false,
+//		buf:      buf,
+//	}, buf
+//}
 
 func NewZModemLocalFile(path string) (*ZModemFile, error) {
 	file, err := os.OpenFile(path, os.O_RDONLY, os.ModePerm)
@@ -71,15 +74,16 @@ func NewZModemLocalFile(path string) (*ZModemFile, error) {
 		return nil, err
 	}
 	return &ZModemFile{
-		Filename: stat.Name(),
-		Size:     int(stat.Size()),
-		ModTime:  int(stat.ModTime().Unix()),
-		FileMode: int(stat.Mode()),
-		No:       0,
-		RemSize:  int(stat.Size()),
-		RemFiles: 1,
-		isSkip:   false,
-		buf:      file,
+		Filename:   stat.Name(),
+		Size:       int(stat.Size()),
+		ModTime:    int(stat.ModTime().Unix()),
+		FileMode:   int(stat.Mode()),
+		No:         0,
+		RemSize:    int(stat.Size()),
+		RemFiles:   1,
+		isSkip:     false,
+		uploadFile: file,
+		tp:         &model.TransferProgress{},
 	}, nil
 }
 

@@ -16,6 +16,10 @@ type frame struct {
 	hasSubPacket   bool
 }
 
+func (t frame) show() string {
+	return fmt.Sprintf("%v header:%v", t.frameType, t.headerData)
+}
+
 func (t frame) marshal() ([]byte, error) {
 	if t.encoding == ZHEX {
 		//需要封装成16进制的数据内容 frameType + 实际数据 + crc16
@@ -72,7 +76,7 @@ func readBufByte(buf *bytes.Buffer) (b byte) {
 	return b
 }
 
-func newBinFrame(frameType FrameType, info []byte) (frameData frame) {
+func NewBinFrame(frameType FrameType, info []byte) (frameData frame) {
 	frameData.frameType = frameType
 	frameData.headerData = info
 	frameData.encoding = ZBIN
@@ -80,7 +84,7 @@ func newBinFrame(frameType FrameType, info []byte) (frameData frame) {
 	return frameData
 }
 
-func newHexFrame(frameType FrameType, info []byte) (frameData frame) {
+func NewHexFrame(frameType FrameType, info []byte) (frameData frame) {
 	frameData.frameType = frameType
 	frameData.headerData = info
 	frameData.encoding = ZHEX
