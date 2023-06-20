@@ -21,7 +21,7 @@ const (
 )
 
 type ZModemConsumer struct {
-	OnUpload        func() *ZModemFile
+	OnUpload        func() *ZModemUplaodFileSum
 	OnUploadSkip    func(file *ZModemFile)
 	OnCheckDownload func(file *ZModemFile)
 	OnDownload      func(file *ZModemFile, reader io.ReadCloser) error
@@ -33,6 +33,56 @@ type ZModemConsumer struct {
 	EchoWriter io.Writer
 }
 
+type ZModemUplaodFileSum struct {
+	List        []*ZModemFile
+	CurrIdx     int
+	forceCancel bool
+}
+
+func NewZModemUplaodFileSum() *ZModemUplaodFileSum {
+	return &ZModemUplaodFileSum{CurrIdx: -1}
+}
+
+func (slf *ZModemUplaodFileSum) GetCurrFile() *ZModemFile {
+	if slf.CurrIdx > len(slf.List)-1 || slf.CurrIdx < 0 {
+		return nil
+	}
+
+	return slf.List[slf.CurrIdx]
+}
+
+func (slf *ZModemUplaodFileSum) GetRemainSize() int {
+	sumSize := 0
+	for i := slf.CurrIdx; i < len(slf.List); i++ {
+		sumSize += slf.List[i].Size
+	}
+	return sumSize
+}
+func (slf *ZModemUplaodFileSum) HasMoreFile() bool {
+	return slf.CurrIdx < len(slf.List)-1
+}
+
+func (slf *ZModemUplaodFileSum) Close() {
+	for _, file := range slf.List {
+		_ = file.uploadFile.Close()
+	}
+}
+
+func (slf *ZModemUplaodFileSum) FixListData() {
+	cnt := len(slf.List)
+	remSize := 0
+	remFileCnt := 0
+	for i := cnt - 1; i >= 0; i-- {
+		currFile := slf.List[i]
+		remSize += currFile.Size
+		remFileCnt++
+
+		currFile.RemSize = remSize
+		currFile.RemFiles = remFileCnt
+		currFile.No = i + 1
+	}
+}
+
 type ZModem struct {
 	unreadBuf        []byte
 	consumer         ZModemConsumer
@@ -41,7 +91,7 @@ type ZModem struct {
 	lock             *sync.RWMutex
 	status           Status
 	lastDownloadFile *ZModemFile
-	lastUploadFile   *ZModemFile
+	lastUploadFile   *ZModemUplaodFileSum
 	running          *atomic.Bool
 	sendFileEOF      bool
 }
@@ -105,17 +155,21 @@ func (t *ZModem) readFrame() (f frame, err error) {
 	}
 	var n int
 	f, n, err = unmarshalFrame(t.unreadBuf)
+
+	//将处理完的数据还回buf，等待下次处理
+	t.unreadBuf = t.unreadBuf[n:]
+
 	if err != nil {
 		return f, err
 	}
 	//将处理完的数据还回buf，等待下次处理
-	t.unreadBuf = t.unreadBuf[n:]
+	//t.unreadBuf = t.unreadBuf[n:]
 
 	return f, err
 }
 
 func (t *ZModem) readSubPacket(frameEncoding FrameEncoding) (s subPacket, err error) {
-	for i := 0; i < 6; i++ {
+	for i := 0; i < 3; i++ {
 		//第一次不等直接尝试读取，如果失败之后最多再试5次每次最多等0.5s
 		if i > 0 {
 			err = t.waitWrite(time.Millisecond * 500)
@@ -257,8 +311,10 @@ func (t *ZModem) release() {
 			t.lastDownloadFile = nil
 		}
 		if t.lastUploadFile != nil {
-			if t.lastUploadFile.uploadFile != nil {
-				_ = t.lastUploadFile.uploadFile.Close()
+			for _, file := range t.lastUploadFile.List {
+				if file.uploadFile != nil {
+					_ = file.uploadFile.Close()
+				}
 			}
 			t.lastUploadFile = nil
 		}

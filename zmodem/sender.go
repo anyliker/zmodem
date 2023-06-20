@@ -21,46 +21,56 @@ func (t *ZModem) handleSend() {
 			//解析错误属于正常现象，因为可能一个大数据包被分成两段发过来了，需要等待第二段到位才能够正常解析
 			return
 		}
+		fmt.Println("接收...", dataFrame.frameType)
 
 		switch dataFrame.frameType {
 		case ZRINIT:
 			if t.lastUploadFile != nil {
-				//传输完成
-				if t.sendFileEOF {
-					err = t.SendFrame(NewHexFrame(ZFIN, DEFAULT_HEADER_DATA))
-					t.sendFileEOF = false
-
-					file := t.lastUploadFile
-					t.lastUploadFile.tp.Name = file.Filename
-					t.lastUploadFile.tp.TotalSize = int64(file.Size)
+				// 上一个文件已完成
+				currFile := t.lastUploadFile.GetCurrFile()
+				if currFile != nil {
+					t.consumer.OnTransferDone(t, currFile.tp)
 				}
-				break
+
+				// 所有文件有处理完了
+				if !t.lastUploadFile.HasMoreFile() {
+					err = t.SendFrame(NewHexFrame(ZFIN, DEFAULT_HEADER_DATA))
+					break
+				}
+			} else {
+				zmodemFile := t.consumer.OnUpload()
+				if zmodemFile == nil {
+					t.close()
+					return
+				}
+
+				t.lastUploadFile = zmodemFile
 			}
 
-			zmodemFile := t.consumer.OnUpload()
-			if zmodemFile == nil {
-				t.close()
-				return
-			}
+			// 下一个文件,  默认从 -1 开始
+			t.lastUploadFile.CurrIdx++
 			err = t.SendFrame(NewBinFrame(ZFILE, DEFAULT_HEADER_DATA))
 			if err != nil {
 				return
 			}
-			t.lastUploadFile = zmodemFile
-			err = t.sendSubPacket(newSubPacket(ZCRCW, zmodemFile.marshal()), ZBIN, true)
-			if zmodemFile == nil {
+
+			currFile := t.lastUploadFile.GetCurrFile()
+			currFile.tp.Setup(int64(currFile.Size))
+
+			err = t.sendSubPacket(newSubPacket(ZCRCW, currFile.marshal()), ZBIN, true)
+			if t.lastUploadFile == nil {
 				t.close()
 				return
 			}
 
-			t.lastUploadFile.tp.Setup(int64(t.lastUploadFile.Size))
 			break
 		case ZRPOS:
 			if t.lastUploadFile == nil {
 				t.close()
 				return
 			}
-			size := t.lastUploadFile.Size
+			currFile := t.lastUploadFile.GetCurrFile()
+			size := currFile.Size
 
 			// 支持中断
 			if t.lastUploadFile.forceCancel {
@@ -75,12 +85,12 @@ func (t *ZModem) handleSend() {
 				return
 			}
 
-			tp := t.lastUploadFile.tp
+			tp := currFile.tp
 			//8k一个包发送
 			_, err = myioutil.CopyFixedSize(myioutil.WriteFunc(func(p []byte) (n int, err error) {
 				n = len(p)
-				isEnd := t.lastUploadFile.writeCount+n >= size
-				t.lastUploadFile.writeCount += n
+				isEnd := currFile.writeCount+n >= size
+				currFile.writeCount += n
 
 				// 支持中断
 				if t.lastUploadFile.forceCancel {
@@ -88,7 +98,7 @@ func (t *ZModem) handleSend() {
 				}
 
 				// 回调进度
-				if tp.SetCurrSize(t.lastUploadFile.Filename, int64(t.lastUploadFile.writeCount), int64(size)) {
+				if tp.SetCurrSize(currFile.Filename, int64(currFile.writeCount), int64(size)) {
 					t.consumer.OnTransferring(tp)
 				}
 				if isEnd {
@@ -101,7 +111,12 @@ func (t *ZModem) handleSend() {
 						sizeBytes := make([]byte, 4)
 						binary.LittleEndian.PutUint32(sizeBytes, uint32(size))
 						err = t.SendFrame(NewBinFrame(ZEOF, sizeBytes))
-						t.sendFileEOF = true
+
+						//if t.lastUploadFile.HasMoreFile() {
+						//	err = t.SendFrame(NewHexFrame(ZRQINIT, DEFAULT_HEADER_DATA))
+						//}
+
+						//t.sendFileEOF = true
 					}
 				} else {
 					err = t.sendSubPacket(newSubPacket(ZCRCG, p), ZBIN, false)
@@ -110,7 +125,7 @@ func (t *ZModem) handleSend() {
 					}
 				}
 				return
-			}), t.lastUploadFile.uploadFile, 8192)
+			}), currFile.uploadFile, 8192)
 
 			if err != nil && err != io.EOF {
 				//非正常关闭
@@ -123,10 +138,31 @@ func (t *ZModem) handleSend() {
 				t.close()
 				return
 			}
-			t.consumer.OnUploadSkip(t.lastUploadFile)
-			err = t.SendFrame(NewHexFrame(ZFIN, DEFAULT_HEADER_DATA))
-			_ = t.lastUploadFile.uploadFile.Close()
-			t.lastDownloadFile = nil
+
+			t.consumer.OnUploadSkip(t.lastUploadFile.GetCurrFile())
+
+			if !t.lastUploadFile.HasMoreFile() {
+				err = t.SendFrame(NewHexFrame(ZFIN, DEFAULT_HEADER_DATA))
+
+				t.lastUploadFile.Close()
+				t.lastUploadFile = nil
+			} else {
+				// 直接开始下一个文件
+				t.lastUploadFile.CurrIdx++
+				err = t.SendFrame(NewBinFrame(ZFILE, DEFAULT_HEADER_DATA))
+				if err != nil {
+					return
+				}
+
+				currFile := t.lastUploadFile.GetCurrFile()
+				currFile.tp.Setup(int64(currFile.Size))
+
+				err = t.sendSubPacket(newSubPacket(ZCRCW, currFile.marshal()), ZBIN, true)
+				if t.lastUploadFile == nil {
+					t.close()
+					return
+				}
+			}
 		case ZFIN:
 			//完成
 			_, err = t.consumer.Writer.Write([]byte{'O', 'O'})
@@ -134,10 +170,10 @@ func (t *ZModem) handleSend() {
 				fmt.Println(err)
 			}
 
-			tp := t.lastUploadFile.tp
+			//tp := t.lastUploadFile.
 			t.release()
 
-			t.consumer.OnTransferDone(t, tp)
+			//t.consumer.OnTransferDone(t, tp)
 			return
 		default:
 			// 看是不是有关闭

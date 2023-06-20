@@ -23,9 +23,9 @@ func main() {
 		OnUploadSkip: func(file *zmodem.ZModemFile) {
 			println(fmt.Sprintf("send file:%s skip", file.Filename))
 		},
-		OnUpload: func() *zmodem.ZModemFile {
-			uploadFile, _ := zmodem.NewZModemLocalFile("~/.ssh/id_rsa.pub")
-			return uploadFile
+		OnUpload: func() *zmodem.ZModemUplaodFileSum {
+			//uploadFile, _ := zmodem.NewZModemLocalFile("~/.ssh/id_rsa.pub")
+			return nil
 		},
 		OnCheckDownload: func(file *zmodem.ZModemFile) {
 			if pathExists(filepath.Join("test_dir", file.Filename)) {

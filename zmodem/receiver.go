@@ -1,8 +1,12 @@
 package zmodem
 
 import (
+	"fmt"
 	"github.com/anyliker/zmodem/byteutil"
 	"github.com/anyliker/zmodem/model"
+	"strings"
+	"sync"
+	"time"
 )
 
 func (t *ZModem) handleReceive() {
@@ -18,8 +22,18 @@ func (t *ZModem) handleReceive() {
 		dataFrame, err := t.readFrame()
 		if err != nil {
 			//解析错误属于正常现象，因为可能一个大数据包被分成两段发过来了，需要等待第二段到位才能够正常解析
+			fmt.Println("readFrame err", err.Error(), dataFrame.frameType)
+			time.Sleep(500 * time.Millisecond)
+
+			if strings.Contains(err.Error(), "empty") {
+				continue
+			}
+
+			// 其他异常 close
+			t.close()
 			return
 		}
+		fmt.Println("接收...", dataFrame.frameType)
 		//println("解析到接收帧")
 		//println(dataFrame.ToString() + "\n")
 		switch dataFrame.frameType {
@@ -79,6 +93,8 @@ func (t *ZModem) handleReceive() {
 
 			isErrorEnd := false
 			currSize := int64(0)
+
+			abortOnce := sync.Once{}
 			for !isEnd {
 				//子包读取错误直接抛异常
 				packet, err := t.readSubPacket(dataFrame.encoding)
@@ -88,6 +104,16 @@ func (t *ZModem) handleReceive() {
 					_ = buf.Close()
 					break
 				}
+
+				// 支持中断
+				if t.lastDownloadFile.forceCancel {
+					abortOnce.Do(func() {
+						_ = t.SendFrame(NewHexFrame(ZRINIT, DEFAULT_HEADER_DATA))
+						//_ = t.SendFrame(NewHexFrame(ZFIN, DEFAULT_HEADER_DATA))
+					})
+					continue
+				}
+
 				_, err = buf.Write(packet.data)
 				if err != nil {
 					if !isErrorEnd {
@@ -132,5 +158,7 @@ func (t *ZModem) handleReceive() {
 		}
 
 	}
+
+	fmt.Println("接受结束...")
 	return
 }
